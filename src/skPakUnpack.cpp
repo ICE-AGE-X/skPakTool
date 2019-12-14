@@ -18,7 +18,12 @@ void  skPak::mkdirByfileName(string fileName)
 			char * dirName = new char[countPos + 1];
 			fileName.copy(dirName, countPos, 0);
 			dirName[countPos] = '\0';
-			mkdir(dirName);
+#ifdef WIN32
+            mkdir(dirName);
+#else
+			mkdir(dirName,0755);
+#endif
+
 			delete[] dirName;
 		}
 		countPos++;
@@ -37,7 +42,7 @@ bool skPak::skPakUnpack(char * path)
 		cout << "open error !" << endl;
 		return false;
 	}
-	HeadPC pcPakHead;
+	HeadPC * pcPakHead=new HeadPC();
 
 	long int fileLength;
 	fseek(pakFile, 0, SEEK_END);
@@ -47,27 +52,25 @@ bool skPak::skPakUnpack(char * path)
 	//cout << fileLength << endl;
 	fseek(pakFile, 0, SEEK_SET);
 
-	fread(&pcPakHead, sizeof(pcPakHead), 1, pakFile);
+	fread(pcPakHead, sizeof(HeadPC), 1, pakFile);
 
-	//cout << pcPakHead.fileNum << " " << pcPakHead.dataTableOffset << " " << pcPakHead.fileNameTableOffset << endl;
+	DataTablePC * dtArray=new DataTablePC[pcPakHead->fileNum + 1];
+	NameTablePC * ntArray=new NameTablePC[pcPakHead->fileNum + 1];
 
-	DataTablePC  dtArray[pcPakHead.fileNum + 1];
-	NameTablePC  ntArray[pcPakHead.fileNum + 1];
+	fread(dtArray, sizeof(DataTablePC)*(pcPakHead->fileNum + 1), 1, pakFile);
 
-	fread(&dtArray, sizeof(dtArray), 1, pakFile);
-
-	fseek(pakFile, pcPakHead.fileNameTableOffset, SEEK_SET);
-	fread(&ntArray, sizeof(ntArray), 1, pakFile);
+	fseek(pakFile, pcPakHead->fileNameTableOffset, SEEK_SET);
+	fread(ntArray, sizeof(NameTablePC)*(pcPakHead->fileNum + 1), 1, pakFile);
 
 	//cout<<dtArray[1].offset<<" "<<dtArray[2].offset<<endl;
 	//cout<<ntArray[1].offset<<" "<<ntArray[2].offset<<endl;
-	dtArray[pcPakHead.fileNum].offset = fileLength;
-	ntArray[pcPakHead.fileNum].offset = fileLength;
-	string fileName[pcPakHead.fileNum];
+	dtArray[pcPakHead->fileNum].offset = fileLength;
+	ntArray[pcPakHead->fileNum].offset = fileLength;
+	string *fileName=new string[pcPakHead->fileNum];
 
 	FILE * outFile;
 	FILE * txtFile=fopen("filename.txt","wb");
-	for (int i = 0; i<pcPakHead.fileNum; i++)
+	for (int i = 0; i<pcPakHead->fileNum; i++)
 	{
 		fseek(pakFile, ntArray[i].offset, SEEK_SET);
 		char * x;
@@ -88,6 +91,10 @@ bool skPak::skPakUnpack(char * path)
 		delete[] outChr;
 	}
 
+    delete [] dtArray;
+    delete [] ntArray;
+    delete [] fileName;
+    delete pcPakHead;
 	fclose(outFile);
 	fclose(txtFile);
 	fclose(pakFile);
@@ -100,12 +107,12 @@ bool skPak::skPakPack(char * outFileName,char * orgFilePath,char * txtFilePath)
 	FILE * orgFile=fopen(orgFilePath,"rb");
 
 	//读取原文件 的不明信息  用来重新写入
-	HeadPC orgHead;
-	fread(&orgHead,sizeof(orgHead),1,orgFile);
-	DataTablePC  odtArray[orgHead.fileNum];
-	fread(&odtArray,sizeof(odtArray),1,orgFile);
-	DataHead odhArray[orgHead.fileNum];
-	for (int i = 0; i < orgHead.fileNum; ++i)
+	HeadPC * orgHead=new HeadPC();
+	fread(orgHead,sizeof(HeadPC),1,orgFile);
+	DataTablePC * odtArray=new DataTablePC [orgHead->fileNum];
+	fread(odtArray,sizeof(DataTablePC)*(orgHead->fileNum),1,orgFile);
+	DataHead *odhArray=new DataHead[orgHead->fileNum];
+	for (int i = 0; i < orgHead->fileNum; ++i)
 	{
 		fseek(orgFile,odtArray[i].offset,SEEK_SET);
 		fread(&odhArray[i],sizeof(DataHead),1,orgFile);
@@ -113,10 +120,10 @@ bool skPak::skPakPack(char * outFileName,char * orgFilePath,char * txtFilePath)
 	fclose(orgFile);
 
 
-	HeadPC pakHead;
+	HeadPC * pakHead=new HeadPC();
 	//写文件头 后面 需要重写
-	fwrite(&pakHead,sizeof(pakHead),1,outFile);
-	pakHead.dataTableOffset= ftell(outFile);
+	fwrite(pakHead,sizeof(HeadPC),1,outFile);
+	pakHead->dataTableOffset= ftell(outFile);
 
 	//读文本文件 里的文件名
 	filebuf fb;
@@ -127,20 +134,20 @@ bool skPak::skPakPack(char * outFileName,char * orgFilePath,char * txtFilePath)
 	list<string> nameList;
 	list<string> ::iterator nameIter;
 	//读各个文件
-	pakHead.fileNum=0;
+	pakHead->fileNum=0;
 	while(getline(fin,tst))
 	{
 		nameList.push_back(tst);
 	}
 	fb.close();
 	//获得文件数量
-	pakHead.fileNum=nameList.size();
-	cout<<"file count:"<<pakHead.fileNum<<endl;
+	pakHead->fileNum=nameList.size();
+	cout<<"file count:"<<pakHead->fileNum<<endl;
 	//获取文件开始偏移
-	pakHead.dataTableOffset=ftell(outFile);
+	pakHead->dataTableOffset=ftell(outFile);
 	//写表数据
-	DataTablePC dtArray[pakHead.fileNum];
-	fwrite(&dtArray,sizeof(dtArray),1,outFile);
+	DataTablePC *dtArray=new DataTablePC[pakHead->fileNum];
+	fwrite(dtArray,sizeof(DataTablePC)*pakHead->fileNum,1,outFile);
 
 	FILE * subFile;
 	int index=0;
@@ -174,10 +181,10 @@ bool skPak::skPakPack(char * outFileName,char * orgFilePath,char * txtFilePath)
 	}
 
 	//获取文件名开始 偏移
-	pakHead.fileNameTableOffset=ftell(outFile);
+	pakHead->fileNameTableOffset=ftell(outFile);
 	//写文件名表
-	NameTablePC ntArray [pakHead.fileNum];
-	fwrite(&ntArray,sizeof(ntArray),1,outFile);
+	NameTablePC * ntArray =new NameTablePC[pakHead->fileNum];
+	fwrite(ntArray,sizeof(NameTablePC)*pakHead->fileNum,1,outFile);
 	index=0;
 	for(nameIter=nameList.begin();nameIter!=nameList.end();++nameIter)
 	{
@@ -192,16 +199,21 @@ bool skPak::skPakPack(char * outFileName,char * orgFilePath,char * txtFilePath)
 	}
 	//重写文件头
 	fseek(outFile,0,SEEK_SET);
-	fwrite(&pakHead,sizeof(pakHead),1,outFile);
+	fwrite(pakHead,sizeof(HeadPC),1,outFile);
 	//重写文件偏移表
-	fseek(outFile,pakHead.dataTableOffset,SEEK_SET);
-	fwrite(&dtArray,sizeof(dtArray),1,outFile);
+	fseek(outFile,pakHead->dataTableOffset,SEEK_SET);
+	fwrite(dtArray,sizeof(DataTablePC)*pakHead->fileNum,1,outFile);
 	//重写文件名偏移表
-	fseek(outFile,pakHead.fileNameTableOffset,SEEK_SET);
-	fwrite(&ntArray,sizeof(ntArray),1,outFile);
+	fseek(outFile,pakHead->fileNameTableOffset,SEEK_SET);
+	fwrite(ntArray,sizeof(NameTablePC)*pakHead->fileNum,1,outFile);
 
 	//fclose(orgFile);
 	fclose(outFile);
-
+    delete orgHead;
+    delete [] odtArray;
+    delete [] odhArray;
+    delete [] dtArray;
+    delete [] ntArray;
+    delete pakHead;
 	return true;
 }

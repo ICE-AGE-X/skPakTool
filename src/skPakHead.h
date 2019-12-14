@@ -2,7 +2,12 @@
 #define __SKPAKHEAD_H__
 #include<stdio.h>
 #include<iostream>
+#ifdef WIN32
 #include<direct.h>
+#else
+#include <stdarg.h>
+#include <sys/stat.h>
+#endif
 #include <string.h>
 #include <fstream>
 #include <list>
